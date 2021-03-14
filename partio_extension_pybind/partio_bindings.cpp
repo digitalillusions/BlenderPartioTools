@@ -24,6 +24,9 @@ PYBIND11_MODULE(partio_pybind, m){
     m.def("read", [](const char* filename, const bool verbose){
             return Partio::read(filename, verbose);
     }, py::arg("filename"), py::arg("verbose")=true);
+    m.def("readHeaders", [](const char* filename, const bool verbose){
+            return Partio::readHeaders(filename, verbose);
+    }, py::arg("filename"), py::arg("verbose")=true);
 
     py::class_<Partio::ParticlesInfo, custom_ptr<Partio::ParticlesInfo>>(m, "ParticlesInfo")
             .def("release", &Partio::ParticlesInfo::release)
@@ -62,9 +65,9 @@ PYBIND11_MODULE(partio_pybind, m){
                     case Partio::ParticleAttributeType::VECTOR:
                         return py::memoryview::from_buffer(reinterpret_cast<const float*>(base_ptr), {nparticles, 3}, {stride, sizeof(float)});
                     case Partio::ParticleAttributeType::FLOAT:
-                        return py::memoryview::from_buffer(reinterpret_cast<const float*>(base_ptr), {nparticles}, {stride});
+                        return py::memoryview::from_buffer(reinterpret_cast<const float*>(base_ptr), {nparticles, 1}, {stride, sizeof(float)});
                     case Partio::ParticleAttributeType::INT:
-                        return py::memoryview::from_buffer(reinterpret_cast<const int*>(base_ptr), {nparticles}, {stride});
+                        return py::memoryview::from_buffer(reinterpret_cast<const int*>(base_ptr), {nparticles, 1}, {stride, sizeof(int)});
                     default: break;
                 }
 

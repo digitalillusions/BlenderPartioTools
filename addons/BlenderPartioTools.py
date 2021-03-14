@@ -23,7 +23,6 @@ from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty
 from bpy.types import Operator
 import numpy as np
 
-
 class PartioReader:
     def __init__( self, param ):
         self.param = param
@@ -80,27 +79,31 @@ class PartioReader:
             for i in range(p.numAttributes()):
                 attr=p.attributeInfo(i)
                 if attr.name=="position": posAttr = attr
-                if attr.name=="velocity": velAttr = attr
+                if attr.name.upper()==emitterObject.partio.color_field: velAttr = attr
 
             pos = np.array(p.data_buffer(posAttr), copy=True)
             pos[:, [2, 1]] = pos[:, [1, 2]]
             pos[:, 1] = -pos[:, 1]
             world_mat = np.array(emitterObject.matrix_world)
             tpos = np.concatenate([pos, np.ones((p.numParticles(), 1))], axis=1) @ world_mat
-            pos = tpos[:, :3].ravel()
+            pos = tpos[:, :3]
 
             # Set the location of all particle locations to flatList
-            particles.foreach_set("location", pos)
+            particles.foreach_set("location", pos.ravel())
 
             if velAttr is not None:
-                vel = np.array(p.data_buffer(velAttr), copy=True)
-                vel[:, [2, 1]] = vel[:, [1, 2]]
-                vel[:, 1] = -vel[:, 1]
-                tvel = np.concatenate([vel, np.ones((p.numParticles(), 1))], axis=1) @ world_mat - np.append(np.array(emitterObject.location), 0)
-                vel = tvel[:, :3].ravel()
-                particles.foreach_set("velocity", vel)
+                vel = np.zeros_like(pos)
+                vel[:, 0:velAttr.count] = np.array(p.data_buffer(velAttr), copy=True).astype(float)
+                if velAttr.name.upper() == "VELOCITY":
+                    vel[:, [2, 1]] = vel[:, [1, 2]]
+                    vel[:, 1] = -vel[:, 1]
+                    tvel = np.concatenate([vel, np.ones((p.numParticles(), 1))], axis=1) @ world_mat - np.append(np.array(emitterObject.location), 0)
+                    vel = tvel[:, :3]
+                particles.foreach_set("velocity", vel.ravel())
+                emitterObject.partio.max_velocity = np.max(np.linalg.norm(vel, axis=1))
 
             emitterObject.particle_systems[0].settings.frame_end = 0
+            p.release()
 
 
 class PartioImporter(Operator, ImportHelper):
@@ -237,9 +240,31 @@ class PartioImporter(Operator, ImportHelper):
         self.emitterObject.particle_systems[0].settings.instance_object = bpy.data.objects[sphereObj.name]
 
 
+def getColorFields(self, context):
+    pheader = partio_pybind.readHeaders(self.file)
+    enum_items = [("NONE", "None", "No Coloring", 0)]
+    if pheader is not None:
+        for i in range(pheader.numAttributes()):
+            attr = pheader.attributeInfo(i)
+            enum_items.append((attr.name.upper(), attr.name, "", i+1))
+
+    return enum_items
+
+
+def updateEnum(self, context):
+    param = [self.file, context.object]
+    PartioReader(param)(context.scene)
+    if context is not None:
+        scaling_node = context.object.active_material.node_tree.nodes.get('Math.001').inputs[1]
+        scaling_node.default_value = 1. / self.max_velocity
+
+
+
 class PartioParameters(bpy.types.PropertyGroup):
     file: bpy.props.StringProperty(name="Partio File", subtype='FILE_PATH')
     init: bpy.props.BoolProperty(name="Initialized", default=False)
+    color_field: bpy.props.EnumProperty(name="Color", items=getColorFields, update=updateEnum)
+    max_velocity: bpy.props.FloatProperty(name="Max Value of Color Field", default=1.)
 
 
 class PartioPanel(bpy.types.Panel):
@@ -265,6 +290,11 @@ class PartioPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(obj.partio, "init")
 
+        row = layout.row()
+        row.prop(obj.partio, "color_field")
+
+        row = layout.row()
+        row.prop(obj.partio, "max_velocity")
 
 @persistent
 def loadPost(scene):
