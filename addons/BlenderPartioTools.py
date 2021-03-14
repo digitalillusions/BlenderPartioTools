@@ -82,7 +82,7 @@ class PartioReader:
             pos[:, [2, 1]] = pos[:, [1, 2]]
             pos[:, 1] = -pos[:, 1]
             world_mat = np.array(emitterObject.matrix_world)
-            tpos = np.concatenate([pos, np.ones((p.numParticles(), 1))], axis=1) @ world_mat
+            tpos = np.concatenate([pos, np.ones((p.numParticles(), 1))], axis=1) @ world_mat.T
             pos = tpos[:, :3]
 
             # Set the location of all particle locations to flatList
@@ -94,7 +94,7 @@ class PartioReader:
                 if velAttr.name.upper() == "VELOCITY":
                     vel[:, [2, 1]] = vel[:, [1, 2]]
                     vel[:, 1] = -vel[:, 1]
-                    tvel = np.concatenate([vel, np.ones((p.numParticles(), 1))], axis=1) @ world_mat - np.append(np.array(emitterObject.location), 0)
+                    tvel = np.concatenate([vel, np.ones((p.numParticles(), 1))], axis=1) @ world_mat.T - np.append(np.array(emitterObject.location), 0)
                     vel = tvel[:, :3]
                 particles.foreach_set("velocity", vel.ravel())
                 emitterObject.partio.max_velocity = np.max(np.linalg.norm(vel, axis=1))
@@ -160,6 +160,9 @@ class PartioImporter(Operator, ImportHelper):
         self.emitterObject.hide_render = False
         self.emitterObject.hide_select = False
 
+        p = partio_pybind.readHeaders(self.filepath)
+        nParticles = p.numParticles()
+
         # add particle system
         bpy.ops.object.modifier_add(type='PARTICLE_SYSTEM')
         bpy.context.object.show_instancer_for_render = False
@@ -170,6 +173,13 @@ class PartioImporter(Operator, ImportHelper):
         self.emitterObject.particle_systems[0].settings.lifetime = 1000
         self.emitterObject.particle_systems[0].settings.particle_size = self.particleRadius
         self.emitterObject.particle_systems[0].settings.display_size = 2.0 * self.particleRadius
+        if nParticles > 10000:
+            self.emitterObject.partio.display_method = 'DOT'
+            self.emitterObject.particle_systems[0].settings.display_method = 'DOT'
+        else:
+            self.emitterObject.partio.display_method = 'RENDER'
+            self.emitterObject.particle_systems[0].settings.display_method = 'RENDER'
+
         self.emitterObject.partio.particle_radius = self.particleRadius
 
         # add object for rendering particles
