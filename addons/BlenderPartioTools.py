@@ -66,9 +66,6 @@ class PartioReader:
 
             emitterObject.particle_systems[0].settings.count = totalParticles
 
-            if totalParticles > 10000:
-                emitterObject.particle_systems[0].settings.display_method = 'DOT'
-
             if depsgraph is None:
                 depsgraph = bpy.context.evaluated_depsgraph_get()
             particle_systems = emitterObject.evaluated_get(depsgraph).particle_systems
@@ -173,6 +170,7 @@ class PartioImporter(Operator, ImportHelper):
         self.emitterObject.particle_systems[0].settings.lifetime = 1000
         self.emitterObject.particle_systems[0].settings.particle_size = self.particleRadius
         self.emitterObject.particle_systems[0].settings.display_size = 2.0 * self.particleRadius
+        self.emitterObject.partio.particle_radius = self.particleRadius
 
         # add object for rendering particles
         bpy.ops.mesh.primitive_uv_sphere_add(radius=1, enter_editmode=False, location=(0, 0, 0))
@@ -259,12 +257,55 @@ def updateEnum(self, context):
         scaling_node.default_value = 1. / self.max_velocity
 
 
+def updateParticleRadius(self, context):
+    cur_obj = context.object
+    for particle_system in cur_obj.particle_systems:
+        particle_system.settings.particle_size = self.particle_radius
+        particle_system.settings.display_size = 2.0 * self.particle_radius
+
+
+def updateDisplayMethod(self, context):
+    cur_obj = context.object
+    for particle_system in cur_obj.particle_systems:
+        particle_system.settings.display_method = self.display_method
+
+
+class PartioReinitOperator(bpy.types.Operator):
+    """Tooltip"""
+    bl_idname = "object.reinit_partio"
+    bl_label = "Reinit partio loading"
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object.partio.init
+
+    def execute(self, context):
+        keep_callbacks = []
+        for callback in bpy.app.handlers.frame_change_post:
+            if not isinstance(callback, PartioReader):
+                keep_callbacks.append(callback)
+        
+        for obj in bpy.data.objects:
+            if obj.partio.init:
+                param = [obj.partio.file, obj]
+                keep_callbacks.append(PartioReader(param))
+
+        bpy.app.handlers.frame_change_post.clear()
+        for callback in keep_callbacks:
+            bpy.app.handlers.frame_change_post.append(callback)
+
+        return {'FINISHED'}
+
 
 class PartioParameters(bpy.types.PropertyGroup):
     file: bpy.props.StringProperty(name="Partio File", subtype='FILE_PATH')
     init: bpy.props.BoolProperty(name="Initialized", default=False)
     color_field: bpy.props.EnumProperty(name="Color", items=getColorFields, update=updateEnum)
     max_velocity: bpy.props.FloatProperty(name="Max Value of Color Field", default=1.)
+    particle_radius: bpy.props.FloatProperty(name="Particle Radius", default=0.025, update=updateParticleRadius)
+    display_method: bpy.props.EnumProperty(items=[('DOT', 'Point', 'Render as point', 0),
+                                                  ('RENDER', 'Object', 'Render as instanced object', 1)],
+                                           name="Display Method", update=updateDisplayMethod)
 
 
 class PartioPanel(bpy.types.Panel):
@@ -294,7 +335,17 @@ class PartioPanel(bpy.types.Panel):
         row.prop(obj.partio, "color_field")
 
         row = layout.row()
+        row.prop(obj.partio, "display_method")
+
+        row = layout.row()
         row.prop(obj.partio, "max_velocity")
+
+        row = layout.row()
+        row.prop(obj.partio, "particle_radius")
+
+        row = layout.row()
+        row.operator("object.reinit_partio")
+
 
 @persistent
 def loadPost(scene):
@@ -302,6 +353,7 @@ def loadPost(scene):
         if obj.partio.init:
             param = [obj.partio.file, obj]
             bpy.app.handlers.frame_change_post.append(PartioReader(param))
+
 
 # Only needed if you want to add into a dynamic menu
 def menu_func_import(self, context):
@@ -312,6 +364,7 @@ def register():
     bpy.utils.register_class(PartioImporter)
     bpy.utils.register_class(PartioParameters)
     bpy.utils.register_class(PartioPanel)
+    bpy.utils.register_class(PartioReinitOperator)
     bpy.types.Object.partio = bpy.props.PointerProperty(type=PartioParameters)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.app.handlers.load_post.append(loadPost)
@@ -322,6 +375,7 @@ def unregister():
     bpy.utils.unregister_class(PartioImporter)
     bpy.utils.unregister_class(PartioParameters)
     bpy.utils.unregister_class(PartioPanel)
+    bpy.utils.unregister_class(PartioReinitOperator)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.app.handlers.load_post.remove(loadPost)
 
