@@ -27,6 +27,13 @@ PYBIND11_MODULE(partio_pybind, m){
     m.def("readHeaders", [](const char* filename, const bool verbose){
             return Partio::readHeaders(filename, verbose);
     }, py::arg("filename"), py::arg("verbose")=true);
+    m.def("write", [](const char* filename, const Partio::ParticlesData& obj, const bool forceCompressed, const bool verbose){
+            Partio::write(filename, obj, forceCompressed, verbose);
+    }, py::arg("filename"), py::arg("particlesData"), py::arg("forceCompressed")=false, py::arg("verbose")=true);
+    m.def("create", &Partio::create);
+    m.def("createInterleave", &Partio::createInterleave);
+    m.def("cloneSchema", &Partio::cloneSchema);
+    m.def("clone", &Partio::clone);
 
     py::class_<Partio::ParticlesInfo, custom_ptr<Partio::ParticlesInfo>>(m, "ParticlesInfo")
             .def("release", &Partio::ParticlesInfo::release)
@@ -74,7 +81,27 @@ PYBIND11_MODULE(partio_pybind, m){
                 return py::memoryview(py::buffer_info());
             });
 
-    auto pdm = py::class_<Partio::ParticlesDataMutable, Partio::ParticlesData, custom_ptr<Partio::ParticlesDataMutable>>(m, "ParticlesDataMutable");
+    auto pdm = py::class_<Partio::ParticlesDataMutable, Partio::ParticlesData, custom_ptr<Partio::ParticlesDataMutable>>(m, "ParticlesDataMutable")
+            .def("data_buffer_mutable", [](Partio::ParticlesDataMutable & obj, Partio::ParticleAttribute& attr) -> py::memoryview{
+                const int nparticles = obj.numParticles();
+                unsigned char* base_ptr = obj.dataWrite<unsigned char>(attr, 0);
+                const unsigned long stride = obj.dataWrite<unsigned char>(attr, 1) - base_ptr;
+                Partio::ParticleAttributeType t = attr.type;
+                switch(t){
+                    case Partio::ParticleAttributeType::VECTOR:
+                        return py::memoryview::from_buffer(reinterpret_cast<float*>(base_ptr), {nparticles, 3}, {stride, sizeof(float)});
+                    case Partio::ParticleAttributeType::FLOAT:
+                        return py::memoryview::from_buffer(reinterpret_cast<float*>(base_ptr), {nparticles, 1}, {stride, sizeof(float)});
+                    case Partio::ParticleAttributeType::INT:
+                        return py::memoryview::from_buffer(reinterpret_cast<int*>(base_ptr), {nparticles, 1}, {stride, sizeof(int)});
+                    default: break;
+                }
+
+                return py::memoryview(py::buffer_info());
+            })
+            .def("addAttribute", &Partio::ParticlesDataMutable::addAttribute)
+            .def("addParticle", &Partio::ParticlesDataMutable::addParticle)
+            .def("addParticles", &Partio::ParticlesDataMutable::addParticles);
 
     py::enum_<Partio::ParticleAttributeType>(m, "ParticleAttributeType")
             .value("NONE", Partio::ParticleAttributeType::NONE)
